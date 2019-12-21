@@ -71,6 +71,7 @@ async def test_network_options(hass, mock_openzwave):
     result = await async_setup_component(
         hass,
         "zwave",
+        # TODO here
         {"zwave": {"usb_path": "mock_usb_path", "config_path": "mock_config_path"}},
     )
     await hass.async_block_till_done()

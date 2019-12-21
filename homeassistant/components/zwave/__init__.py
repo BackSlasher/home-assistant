@@ -246,7 +246,7 @@ CONFIG_SCHEMA = vol.Schema(
                 vol.Optional(
                     CONF_POLLING_INTERVAL, default=DEFAULT_POLLING_INTERVAL
                 ): cv.positive_int,
-                vol.Optional(CONF_USB_STICK_PATH): cv.string,
+                vol.Optional(CONF_USB_STICK_PATH): vol.Any(cv.string),
             }
         )
     },

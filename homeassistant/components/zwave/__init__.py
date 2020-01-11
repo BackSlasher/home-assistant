@@ -45,7 +45,7 @@ from .const import (
     CONF_USB_STICK_PATH,
     DATA_DEVICES,
     DATA_ENTITY_VALUES,
-    DATA_NETWORK,
+    DATA_NETWORKS,
     DATA_ZWAVE_CONFIG,
     DEFAULT_CONF_AUTOHEAL,
     DEFAULT_CONF_USB_STICK_PATH,
@@ -246,13 +246,18 @@ CONFIG_SCHEMA = vol.Schema(
                 vol.Optional(
                     CONF_POLLING_INTERVAL, default=DEFAULT_POLLING_INTERVAL
                 ): cv.positive_int,
-                vol.Optional(CONF_USB_STICK_PATH): vol.Any(cv.string),
+                vol.Optional(CONF_USB_STICK_PATH): vol.Any(
+                    vol.Schema(
+                        cv.string,
+                        lambda x: [{'path': x}],
+                    ),
+                    [{vol.Optional('name'): cv.string, 'path': cv.string,}],
+                ),
             }
         )
     },
     extra=vol.ALLOW_EXTRA,
 )
-
 
 def _obj_to_dict(obj):
     """Convert an object into a hash for debug."""
@@ -298,7 +303,7 @@ def get_config_value(node, value_index, tries=5):
 
 async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
     """Set up the Z-Wave platform (generic part)."""
-    if discovery_info is None or DATA_NETWORK not in hass.data:
+    if discovery_info is None or DATA_NETWORKS not in hass.data:
         return False
 
     device = hass.data[DATA_DEVICES].get(discovery_info[const.DISCOVERY_DEVICE], None)
@@ -334,6 +339,26 @@ async def async_setup(hass, config):
     return True
 
 
+async def _setup_usb_config(hass, usb_config, config):
+    _LOGGER.info("Z-Wave USB path is %s", usb_path)
+
+    # Setup options
+    options = ZWaveOption(
+        usb_path,
+        user_path=hass.config.config_dir,
+        config_path=usb_config.get(CONF_CONFIG_PATH),
+    )
+
+    options.set_console_output(use_debug)
+
+    if config.get(CONF_NETWORK_KEY):
+        options.addOption("NetworkKey", config[CONF_NETWORK_KEY])
+
+    await hass.async_add_executor_job(options.lock)
+
+    return (config['name'], ZWaveNetwork(options, autostart=False))
+
+
 async def async_setup_entry(hass, config_entry):
     """Set up Z-Wave from a config entry.
 
@@ -363,24 +388,20 @@ async def async_setup_entry(hass, config_entry):
         config.get(CONF_DEVICE_CONFIG_GLOB),
     )
 
-    usb_path = config[CONF_USB_STICK_PATH]
+    usb_configs = config[CONF_USB_STICK_PATH]
 
-    _LOGGER.info("Z-Wave USB path is %s", usb_path)
+    # TODO nitz different procedure
+    name_index = 0
+    for config in usb_configs:
+        if not config['name']:
+            config['name'] = f"default_{name_index}"
+            name_index += 1
 
-    # Setup options
-    options = ZWaveOption(
-        usb_path,
-        user_path=hass.config.config_dir,
-        config_path=config.get(CONF_CONFIG_PATH),
-    )
+    networks = hass.data[DATA_NETWORKS] = dict(await asyncio.gather(*[
+        _setup_usb_config(hass, usb_config, config)
+        for usb_config in usb_configs
+    ]))
 
-    options.set_console_output(use_debug)
-
-    if config.get(CONF_NETWORK_KEY):
-        options.addOption("NetworkKey", config[CONF_NETWORK_KEY])
-
-    await hass.async_add_executor_job(options.lock)
-    network = hass.data[DATA_NETWORK] = ZWaveNetwork(options, autostart=False)
     hass.data[DATA_DEVICES] = {}
     hass.data[DATA_ENTITY_VALUES] = []
 
@@ -444,7 +465,9 @@ async def async_setup_entry(hass, config_entry):
     )
     platform.config_entry = config_entry
 
-    def node_added(node):
+    # TODO did we add a param correctly?
+    # https://github.com/tomwilkie/python-openzwave/blob/master/examples/old/zwaveCommander.py#L401
+    def node_added(network, node):
         """Handle a new node on the network."""
         entity = ZWaveNodeEntity(node, network)
 
@@ -553,52 +576,90 @@ async def async_setup_entry(hass, config_entry):
         weak=False,
     )
 
+    def _collect_networks(service):
+        """
+        Collect the matching network, or all of them if none exist
+        """
+        network_name = service.data.get("network_name")
+        if network_name:
+            return {network_name: networks[network_name]}
+        return networks
+
     def add_node(service):
         """Switch into inclusion mode."""
-        _LOGGER.info("Z-Wave add_node have been initialized")
-        network.controller.add_node()
+        for network_name, network in _collect_networks(service).items():
+            _LOGGER.info("Z-Wave network %s add_node have been initialized", network_name)
+            network.controller.add_node()
 
     def add_node_secure(service):
         """Switch into secure inclusion mode."""
-        _LOGGER.info("Z-Wave add_node_secure have been initialized")
-        network.controller.add_node(True)
+        for network_name, network in _collect_networks(service).items():
+            _LOGGER.info("Z-Wave network %s add_node_secure have been initialized", network_name)
+            network.controller.add_node(True)
 
     def remove_node(service):
         """Switch into exclusion mode."""
-        _LOGGER.info("Z-Wave remove_node have been initialized")
-        network.controller.remove_node()
+        for network_name, network in _collect_networks(service).items():
+            _LOGGER.info("Z-Wave network %s remove_node have been initialized", network_name)
+            network.controller.remove_node()
 
     def cancel_command(service):
         """Cancel a running controller command."""
-        _LOGGER.info("Cancel running Z-Wave command")
-        network.controller.cancel_command()
+        for network_name, network in _collect_networks(service).items():
+            _LOGGER.info("Cancel running Z-Wave command network %s", network_name)
+            network.controller.cancel_command()
 
     def heal_network(service):
         """Heal the network."""
-        _LOGGER.info("Z-Wave heal running")
-        network.heal()
+        for network_name, network in _collect_networks(service).items():
+            _LOGGER.info("Z-Wave heal running network %s", network_name)
+            network.heal()
 
     def soft_reset(service):
         """Soft reset the controller."""
-        _LOGGER.info("Z-Wave soft_reset have been initialized")
-        network.controller.soft_reset()
+        for network_name, network in _collect_networks(service).items():
+            _LOGGER.info("Z-Wave network %s soft_reset have been initialized", network_name)
+            network.controller.soft_reset()
 
     def test_network(service):
         """Test the network by sending commands to all the nodes."""
-        _LOGGER.info("Z-Wave test_network have been initialized")
-        network.test()
+        for network_name, network in _collect_networks(service).items():
+            _LOGGER.info("Z-Wave network %s test_network have been initialized", network_name)
+            network.test()
 
     def stop_network(_service_or_event):
         """Stop Z-Wave network."""
         _LOGGER.info("Stopping Z-Wave network")
-        network.stop()
+        for network_name, network in _collect_networks(service).items():
+            network.stop()
         if hass.state == CoreState.running:
             hass.bus.fire(const.EVENT_NETWORK_STOP)
+
+    def _find_node_and_network(node_id):
+        # Find the first node that matches in all networks
+        matching_nodes = [
+            (network.nodes.get(node_id), network)
+            for network in networks
+        ]
+        # filter nulls
+        matching_nodes = [
+            item for item in matching_nodes
+            if item[0] is not None
+        ]
+        # single node expected
+        (item,) = matching_nodes
+        return item
+
+    def _find_node(node_id):
+        item = _find_node_and_network(node_id)
+        return item[0]
+
 
     async def rename_node(service):
         """Rename a node."""
         node_id = service.data.get(const.ATTR_NODE_ID)
-        node = network.nodes[node_id]
+        # Find the first node that matches in all networks
+        node = _find_node(node_id)
         name = service.data.get(const.ATTR_NAME)
         node.name = name
         _LOGGER.info("Renamed Z-Wave node %d to %s", node_id, name)
@@ -618,7 +679,7 @@ async def async_setup_entry(hass, config_entry):
         """Rename a node value."""
         node_id = service.data.get(const.ATTR_NODE_ID)
         value_id = service.data.get(const.ATTR_VALUE_ID)
-        node = network.nodes[node_id]
+        node = _find_node(node_id)
         value = node.values[value_id]
         name = service.data.get(const.ATTR_NAME)
         value.label = name
@@ -634,7 +695,7 @@ async def async_setup_entry(hass, config_entry):
         """Set the polling intensity of a node value."""
         node_id = service.data.get(const.ATTR_NODE_ID)
         value_id = service.data.get(const.ATTR_VALUE_ID)
-        node = network.nodes[node_id]
+        node = _find_node(node_id)
         value = node.values[value_id]
         intensity = service.data.get(const.ATTR_POLL_INTENSITY)
         if intensity == 0:
@@ -661,18 +722,22 @@ async def async_setup_entry(hass, config_entry):
         """Remove failed node."""
         node_id = service.data.get(const.ATTR_NODE_ID)
         _LOGGER.info("Trying to remove zwave node %d", node_id)
-        network.controller.remove_failed_node(node_id)
+        # TODO nitz do we remove this from all, or just from where the node is registered?
+        for network in networks:
+            network.controller.remove_failed_node(node_id)
 
     def replace_failed_node(service):
         """Replace failed node."""
         node_id = service.data.get(const.ATTR_NODE_ID)
         _LOGGER.info("Trying to replace zwave node %d", node_id)
-        network.controller.replace_failed_node(node_id)
+        # TODO nitz do we replace this from all, or just from where the node is registered?
+        for network in networks:
+            network.controller.replace_failed_node(node_id)
 
     def set_config_parameter(service):
         """Set a config parameter to a node."""
         node_id = service.data.get(const.ATTR_NODE_ID)
-        node = network.nodes[node_id]
+        node, network = _find_node_and_network(node_id)
         param = service.data.get(const.ATTR_CONFIG_PARAMETER)
         selection = service.data.get(const.ATTR_CONFIG_VALUE)
         size = service.data.get(const.ATTR_CONFIG_SIZE)
@@ -730,7 +795,7 @@ async def async_setup_entry(hass, config_entry):
         """Refresh the specified value from a node."""
         node_id = service.data.get(const.ATTR_NODE_ID)
         value_id = service.data.get(const.ATTR_VALUE_ID)
-        node = network.nodes[node_id]
+        node = _find_node(node_id)
         node.values[value_id].refresh()
         _LOGGER.info("Node %s value %s refreshed", node_id, value_id)
 
@@ -739,14 +804,14 @@ async def async_setup_entry(hass, config_entry):
         node_id = service.data.get(const.ATTR_NODE_ID)
         value_id = service.data.get(const.ATTR_VALUE_ID)
         value = service.data.get(const.ATTR_CONFIG_VALUE)
-        node = network.nodes[node_id]
+        node = _find_node(node_id)
         node.values[value_id].data = value
         _LOGGER.info("Node %s value %s set to %s", node_id, value_id, value)
 
     def print_config_parameter(service):
         """Print a config parameter from a node."""
         node_id = service.data.get(const.ATTR_NODE_ID)
-        node = network.nodes[node_id]
+        node = _find_node(node_id)
         param = service.data.get(const.ATTR_CONFIG_PARAMETER)
         _LOGGER.info(
             "Config parameter %s on Node %s: %s",
@@ -758,13 +823,13 @@ async def async_setup_entry(hass, config_entry):
     def print_node(service):
         """Print all information about z-wave node."""
         node_id = service.data.get(const.ATTR_NODE_ID)
-        node = network.nodes[node_id]
+        node = _find_node(node_id)
         nice_print_node(node)
 
     def set_wakeup(service):
         """Set wake-up interval of a node."""
         node_id = service.data.get(const.ATTR_NODE_ID)
-        node = network.nodes[node_id]
+        node = _find_node(node_id)
         value = service.data.get(const.ATTR_CONFIG_VALUE)
         if node.can_wake_up():
             for value_id in node.get_values(class_id=const.COMMAND_CLASS_WAKE_UP):
@@ -781,6 +846,7 @@ async def async_setup_entry(hass, config_entry):
         group = service.data.get(const.ATTR_GROUP)
         instance = service.data.get(const.ATTR_INSTANCE)
 
+        # TODO nitz which node
         node = ZWaveGroup(group, network, node_id)
         if association_type == "add":
             node.add_association(target_node_id, instance)
@@ -811,6 +877,7 @@ async def async_setup_entry(hass, config_entry):
     def refresh_node(service):
         """Refresh all node info."""
         node_id = service.data.get(const.ATTR_NODE_ID)
+        # TODO nitz which node
         node = network.nodes[node_id]
         node.refresh_info()
 
@@ -818,12 +885,14 @@ async def async_setup_entry(hass, config_entry):
         """Reset meter counters of a node."""
         node_id = service.data.get(const.ATTR_NODE_ID)
         instance = service.data.get(const.ATTR_INSTANCE)
+        # TODO nitz which node
         node = network.nodes[node_id]
         for value in node.get_values(class_id=const.COMMAND_CLASS_METER).values():
             if value.index != const.INDEX_METER_RESET:
                 continue
             if value.instance != instance:
                 continue
+            # TODO nitz which node
             network.manager.pressButton(value.value_id)
             network.manager.releaseButton(value.value_id)
             _LOGGER.info(
@@ -840,6 +909,7 @@ async def async_setup_entry(hass, config_entry):
         """Heal a node on the network."""
         node_id = service.data.get(const.ATTR_NODE_ID)
         update_return_routes = service.data.get(const.ATTR_RETURN_ROUTES)
+        # TODO nitz which node
         node = network.nodes[node_id]
         _LOGGER.info("Z-Wave node heal running for node %s", node_id)
         node.heal(update_return_routes)
@@ -848,6 +918,7 @@ async def async_setup_entry(hass, config_entry):
         """Send test messages to a node on the network."""
         node_id = service.data.get(const.ATTR_NODE_ID)
         messages = service.data.get(const.ATTR_MESSAGES)
+        # TODO nitz which node
         node = network.nodes[node_id]
         _LOGGER.info("Sending %s test-messages to node %s.", messages, node_id)
         node.test(messages)
@@ -855,11 +926,13 @@ async def async_setup_entry(hass, config_entry):
     def start_zwave(_service_or_event):
         """Startup Z-Wave network."""
         _LOGGER.info("Starting Z-Wave network...")
+        # TODO nitz which node
         network.start()
         hass.bus.fire(const.EVENT_NETWORK_START)
 
         async def _check_awaked():
             """Wait for Z-wave awaked state (or timeout) and finalize start."""
+            # TODO nitz which node
             _LOGGER.debug("network state: %d %s", network.state, network.state_str)
 
             start_time = dt_util.utcnow()
@@ -892,6 +965,7 @@ async def async_setup_entry(hass, config_entry):
         """Perform final initializations after Z-Wave network is awaked."""
         polling_interval = convert(config.get(CONF_POLLING_INTERVAL), int)
         if polling_interval is not None:
+            # TODO nitz which node
             network.set_poll_interval(polling_interval, False)
 
         poll_interval = network.get_poll_interval()

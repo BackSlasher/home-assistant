@@ -31,14 +31,14 @@ CONF_CONFIG_PATH = "config_path"
 CONF_NETWORK_KEY = "network_key"
 
 DEFAULT_CONF_AUTOHEAL = False
-DEFAULT_CONF_USB_STICK_PATH = "/zwaveusbstick"
+DEFAULT_CONF_USB_STICK_PATH = ["/zwaveusbstick"]
 DEFAULT_POLLING_INTERVAL = 60000
 DEFAULT_DEBUG = False
 
 DISCOVERY_DEVICE = "device"
 
 DATA_DEVICES = "zwave_devices"
-DATA_NETWORK = "zwave_network"
+DATA_NETWORKS = "zwave_network"
 DATA_ENTITY_VALUES = "zwave_entity_values"
 DATA_ZWAVE_CONFIG = "zwave_config"
 

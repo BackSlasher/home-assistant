@@ -7,6 +7,10 @@ import voluptuous as vol
 from homeassistant.components import websocket_api
 from homeassistant.core import callback
 
+from . import (
+    _collect_networks,
+)
+
 from .const import (
     CONF_AUTOHEAL,
     CONF_DEBUG,
@@ -21,13 +25,20 @@ _LOGGER = logging.getLogger(__name__)
 TYPE = "type"
 ID = "id"
 
+# XXX bad
+from typing import NamedTuple, Any
+class DummyService
+    data: Any
 
 @websocket_api.require_admin
 @websocket_api.websocket_command({vol.Required(TYPE): "zwave/network_status"})
 def websocket_network_status(hass, connection, msg):
     """Get Z-Wave network status."""
     # XXX provide a better solution
-    network = list(hass.data[DATA_NETWORKS].values())[0]
+    dummy_service = Dummyservice(data=msg)
+    networks = _collect_networks(dummy_service)
+    network = (networks.values())[0]
+    _LOGGER.info("aaaaaa", network)
     connection.send_result(msg[ID], {"state": network.state})
 
 

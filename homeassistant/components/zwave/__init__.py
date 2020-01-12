@@ -323,6 +323,16 @@ def _find_node(node_id):
     item = _find_node_and_network(node_id)
     return item[0]
 
+def _collect_networks(service):
+    """
+    Collect the matching network, or all of them if none exist
+    """
+    networks = hass.data.get(DATA_NETWORKS, {})
+    network_name = service.data.get("network_name")
+    if network_name:
+        return {network_name: networks[network_name]}
+    return networks
+
 
 async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
     """Set up the Z-Wave platform (generic part)."""
@@ -598,15 +608,6 @@ async def async_setup_entry(hass, config_entry):
         ZWaveNetwork.SIGNAL_ALL_NODES_QUERIED_SOME_DEAD,
         weak=False,
     )
-
-    def _collect_networks(service):
-        """
-        Collect the matching network, or all of them if none exist
-        """
-        network_name = service.data.get("network_name")
-        if network_name:
-            return {network_name: networks[network_name]}
-        return networks
 
     def add_node(service):
         """Switch into inclusion mode."""

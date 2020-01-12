@@ -12,7 +12,7 @@ from .const import (
     CONF_DEBUG,
     CONF_POLLING_INTERVAL,
     CONF_USB_STICK_PATH,
-    DATA_NETWORK,
+    DATA_NETWORKS,
     DATA_ZWAVE_CONFIG,
 )
 
@@ -26,7 +26,8 @@ ID = "id"
 @websocket_api.websocket_command({vol.Required(TYPE): "zwave/network_status"})
 def websocket_network_status(hass, connection, msg):
     """Get Z-Wave network status."""
-    network = hass.data[DATA_NETWORK]
+    # XXX provide a better solution
+    network = list(hass.data[DATA_NETWORKS].values())[0]
     connection.send_result(msg[ID], {"state": network.state})
 
 
@@ -41,6 +42,7 @@ def websocket_get_config(hass, connection, msg):
             CONF_AUTOHEAL: config[CONF_AUTOHEAL],
             CONF_DEBUG: config[CONF_DEBUG],
             CONF_POLLING_INTERVAL: config[CONF_POLLING_INTERVAL],
+            # XXX we're going to change this interface
             CONF_USB_STICK_PATH: config[CONF_USB_STICK_PATH],
         },
     )

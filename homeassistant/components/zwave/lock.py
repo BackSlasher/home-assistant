@@ -8,7 +8,7 @@ from homeassistant.core import callback
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
-from . import ZWaveDeviceEntity, const
+from . import ZWaveDeviceEntity, const, _find_node
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -168,12 +168,10 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
 
     async_dispatcher_connect(hass, "zwave_new_lock", async_add_lock)
 
-    network = hass.data[const.DATA_NETWORK]
-
     def set_usercode(service):
         """Set the usercode to index X on the lock."""
         node_id = service.data.get(const.ATTR_NODE_ID)
-        lock_node = network.nodes[node_id]
+        lock_node = _find_node(node_id)
         code_slot = service.data.get(ATTR_CODE_SLOT)
         usercode = service.data.get(ATTR_USERCODE)
 
@@ -197,7 +195,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     def get_usercode(service):
         """Get a usercode at index X on the lock."""
         node_id = service.data.get(const.ATTR_NODE_ID)
-        lock_node = network.nodes[node_id]
+        lock_node = _find_node(node_id)
         code_slot = service.data.get(ATTR_CODE_SLOT)
 
         for value in lock_node.get_values(
@@ -211,7 +209,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     def clear_usercode(service):
         """Set usercode to slot X on the lock."""
         node_id = service.data.get(const.ATTR_NODE_ID)
-        lock_node = network.nodes[node_id]
+        lock_node = _find_node(node_id)
         code_slot = service.data.get(ATTR_CODE_SLOT)
         data = ""
 

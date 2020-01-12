@@ -18,13 +18,13 @@ from . import (
     CONF_TILT_OPEN_POSITION,
     ZWaveDeviceEntity,
     workaround,
+    _find_node_and_network,
 )
 from .const import (
     COMMAND_CLASS_BARRIER_OPERATOR,
     COMMAND_CLASS_MANUFACTURER_PROPRIETARY,
     COMMAND_CLASS_SWITCH_BINARY,
     COMMAND_CLASS_SWITCH_MULTILEVEL,
-    DATA_NETWORK,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -98,7 +98,8 @@ class ZwaveRollershutter(ZWaveDeviceEntity, CoverDevice):
     def __init__(self, hass, values, invert_buttons, invert_percent):
         """Initialize the Z-Wave rollershutter."""
         ZWaveDeviceEntity.__init__(self, values, DOMAIN)
-        self._network = hass.data[DATA_NETWORK]
+        # TODO maybe we can pick up the network from the node directly
+        self._network = _find_node_and_network(self.node.node_id)
         self._open_id = None
         self._close_id = None
         self._current_position = None

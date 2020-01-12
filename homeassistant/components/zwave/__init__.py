@@ -301,6 +301,29 @@ def get_config_value(node, value_index, tries=5):
     return None
 
 
+
+# TODO rename without underscore
+def _find_node_and_network(node_id):
+    networks = hass.data.get(DATA_NETWORKS, {})
+    # Find the first node that matches in all networks
+    matching_nodes = [
+        (network.nodes.get(node_id), network)
+        for network in networks.values()
+    ]
+    # filter nulls
+    matching_nodes = [
+        item for item in matching_nodes
+        if item[0] is not None
+    ]
+    # single node expected
+    (item,) = matching_nodes
+    return item
+
+def _find_node(node_id):
+    item = _find_node_and_network(node_id)
+    return item[0]
+
+
 async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
     """Set up the Z-Wave platform (generic part)."""
     if discovery_info is None or DATA_NETWORKS not in hass.data:
@@ -634,26 +657,6 @@ async def async_setup_entry(hass, config_entry):
             network.stop()
         if hass.state == CoreState.running:
             hass.bus.fire(const.EVENT_NETWORK_STOP)
-
-    def _find_node_and_network(node_id):
-        # Find the first node that matches in all networks
-        matching_nodes = [
-            (network.nodes.get(node_id), network)
-            for network in networks
-        ]
-        # filter nulls
-        matching_nodes = [
-            item for item in matching_nodes
-            if item[0] is not None
-        ]
-        # single node expected
-        (item,) = matching_nodes
-        return item
-
-    def _find_node(node_id):
-        item = _find_node_and_network(node_id)
-        return item[0]
-
 
     async def rename_node(service):
         """Rename a node."""

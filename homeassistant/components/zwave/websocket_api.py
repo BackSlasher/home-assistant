@@ -35,7 +35,7 @@ class DummyService(NamedTuple):
 def websocket_network_status(hass, connection, msg):
     """Get Z-Wave network status."""
     # XXX provide a better solution
-    dummy_service = Dummyservice(data=msg)
+    dummy_service = DummyService(data=msg)
     networks = _collect_networks(dummy_service)
     network = (networks.values())[0]
     _LOGGER.info("aaaaaa", network)

@@ -27,7 +27,7 @@ ID = "id"
 
 # XXX bad
 from typing import NamedTuple, Any
-class DummyService
+class DummyService(NamedTuple):
     data: Any
 
 @websocket_api.require_admin
